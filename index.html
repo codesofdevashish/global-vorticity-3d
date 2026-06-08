@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Real Global Vorticity Map (Windy-Style Trails)</title>
+    <title>3D Real Global Vorticity Map (Physical Globe + Sharp Trails)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #030712; }
+        body { margin: 0; overflow: hidden; background-color: #020408; }
         canvas { display: block; }
     </style>
 </head>
@@ -47,7 +47,7 @@
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.set(0, 0, 150);
 
-        // Enable preserveDrawingBuffer for the smooth trail blending logic
+        // Enable preserveDrawingBuffer for trail fading
         const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
@@ -57,36 +57,38 @@
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
-        controls.minDistance = 80;
+        controls.minDistance = 75;
         controls.maxDistance = 220;
 
         const globeRadius = 60;
 
-        // --- 2. ADD CLEAN, DARK LAND/SEA MAP BOUNDARIES ---
-        // Swapping to a clean, cloudless, dark blueprint map style so it acts as a subtle background grid
-        const textureLoader = new THREE.TextureLoader();
-        const mapUrl = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_lights_2048.png';
-        
-        const globeGeo = new THREE.SphereGeometry(globeRadius, 45, 45);
-        const globeMat = new THREE.MeshBasicMaterial({
-            map: textureLoader.load(mapUrl),
-            color: 0x0f172a, // Subtle midnight-blue hue for oceans and landmass silhouettes
+        // --- 2. GENERATE A PHYSICAL BLUEPRINT GLOBE (Bypasses Image Security Blocks) ---
+        // Create a distinct dark solid sphere representing the physical solid Earth base
+        const solidGlobeGeo = new THREE.SphereGeometry(globeRadius - 0.2, 40, 40);
+        const solidGlobeMat = new THREE.MeshBasicMaterial({
+            color: 0x0a1120, // Deep navy solid land/sea container
+        });
+        const solidGlobe = new THREE.Mesh(solidGlobeGeo, solidGlobeMat);
+        scene.add(solidGlobe);
+
+        // Create a highly visible, glowing grid network of Latitudes and Longitudes (15-degree steps)
+        // This acts as a physical reference grid so you instantly know where you are looking!
+        const gridGeo = new THREE.SphereGeometry(globeRadius, 24, 12);
+        const gridMat = new THREE.MeshBasicMaterial({
+            color: 0x1e293b, // Slate grid color
+            wireframe: true,
             transparent: true,
             opacity: 0.4
         });
-        const globe = new THREE.Mesh(globeGeo, globeMat);
-        scene.add(globe);
-
-        // Fine grid lines to help with global tracking orientation
-        const gridGeo = new THREE.SphereGeometry(globeRadius + 0.05, 36, 18);
-        const gridMat = new THREE.MeshBasicMaterial({
-            color: 0x1e293b,
-            wireframe: true,
-            transparent: true,
-            opacity: 0.2
-        });
         const gridGlobe = new THREE.Mesh(gridGeo, gridMat);
         scene.add(gridGlobe);
+
+        // Add bright glowing lines for the Equator and Prime Meridian to anchoring orientation
+        const equatorGeo = new THREE.TorusGeometry(globeRadius + 0.05, 0.15, 4, 64);
+        const equatorMat = new THREE.MeshBasicMaterial({ color: 0x334155 });
+        const equator = new THREE.Mesh(equatorGeo, equatorMat);
+        equator.rotation.x = Math.PI / 2; // Flip to match equator line
+        scene.add(equator);
 
         // --- 3. ENGINE APPLICATION STATES ---
         let weatherData = null; 
@@ -141,7 +143,7 @@
 
         // --- 6. PARTICLE ENGINE SETUP ---
         function initParticleEngine() {
-            particleCount = 20000; // Increased count to compensate for smaller size
+            particleCount = 22000; 
             document.getElementById('particle-count').innerText = particleCount.toLocaleString();
 
             const geometry = new THREE.BufferGeometry();
@@ -155,25 +157,27 @@
             geometry.setAttribute('position', new THREE.BufferAttribute(positionsArray, 3));
             geometry.setAttribute('color', new THREE.BufferAttribute(colorsArray, 3));
 
-            // CRITICAL CHANGE: Shrunk point size to 0.25 for sharp, razor-thin lines
+            // CRITICAL CHANGE: Shrunk particle baseline size to 0.12 and turned sizeAttenuation ON!
+            // This forces particles to become microscopic lines when you zoom out, and sharp crisp points when you zoom in.
             const material = new THREE.PointsMaterial({
-                size: 0.25,
+                size: 0.12,
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.8,
+                opacity: 0.85,
                 blending: THREE.AdditiveBlending,
+                sizeAttenuation: true, 
                 depthWrite: false
             });
 
             particleSystem = new THREE.Points(geometry, material);
             scene.add(particleSystem);
 
-            // Semi-transparent overlay mask to control trail lengths
+            // Semi-transparent fade layer to construct historical stream trails
             const fadeOverlayGeo = new THREE.PlaneGeometry(2, 2);
             fadeOverlayMat = new THREE.MeshBasicMaterial({
-                color: 0x030712, // Matches background space exactly
+                color: 0x020408, // Matches dark canvas background
                 transparent: true,
-                opacity: 0.06   // Controls velocity trail length decay
+                opacity: 0.05   // Keep this low for long sleek trails
             });
             fadeOverlay = new THREE.Mesh(fadeOverlayGeo, fadeOverlayMat);
             fadeOverlay.material.depthTest = false;
@@ -190,7 +194,7 @@
                 phi: phi,
                 theta: theta,
                 age: 0,
-                maxAge: 25 + Math.floor(Math.random() * 45) // Short lifespans limit trailing clutter
+                maxAge: 30 + Math.floor(Math.random() * 40)
             };
 
             updateGeometryBuffers(i, phi, theta);
@@ -198,8 +202,8 @@
 
         function updateGeometryBuffers(i, phi, theta) {
             const idx = i * 3;
-            // Keeps flow slightly suspended right above map details
-            const dynamicRadius = globeRadius + 0.3 + (currentLevelIndex * 0.4);
+            // Float weather elements precisely above our geometrical globe skin
+            const dynamicRadius = globeRadius + 0.4 + (currentLevelIndex * 0.5);
 
             positionsArray[idx]     = dynamicRadius * Math.sin(phi) * Math.cos(theta);
             positionsArray[idx + 1] = dynamicRadius * Math.cos(phi);
@@ -210,7 +214,6 @@
         function animateLoop() {
             requestAnimationFrame(animateLoop);
 
-            // Apply frame rendering trail alpha masking
             renderer.getClearColor(fadeOverlayMat.color);
             scene.add(camera);
             camera.add(fadeOverlay);
@@ -219,9 +222,10 @@
             const posAttr = particleSystem.geometry.attributes.position;
             const colAttr = particleSystem.geometry.attributes.color;
 
-            // Fluid planetary global drift adjustments
-            globe.rotation.y += 0.0003;
+            // Slowly spin our baseline physical globe coordinates together
+            solidGlobe.rotation.y += 0.0003;
             gridGlobe.rotation.y += 0.0003;
+            equator.rotation.z -= 0.0003; // Counter-sync rotational vector
             particleSystem.rotation.y += 0.0003;
 
             for (let i = 0; i < particleCount; i++) {
@@ -240,7 +244,6 @@
                 const speedScale = voVal * 4500;
                 const baseZonalFlow = 0.4; 
 
-                // Differential spatial tracking displacement stepping
                 p.phi   -= (Math.sin(lonRad * 3) * speedScale) * 0.002;
                 p.theta += (baseZonalFlow + Math.cos(latRad * 2) * speedScale) * 0.002;
 
@@ -249,14 +252,13 @@
                 const colorIdx = i * 3;
                 const normalizedIntensity = Math.min(Math.abs(voVal) * 25000, 1.0);
 
-                // High-visibility neon contrast palettes
                 if (voVal >= 0) {
                     colorsArray[colorIdx]     = 0.0;
-                    colorsArray[colorIdx + 1] = 0.5 + (normalizedIntensity * 0.5); // Radiant Neon Cyan/Green
-                    colorsArray[colorIdx + 2] = 0.9;
+                    colorsArray[colorIdx + 1] = 0.5 + (normalizedIntensity * 0.5); // Radiant Cyan/Green Winds
+                    colorsArray[colorIdx + 2] = 1.0;
                 } else {
-                    colorsArray[colorIdx]     = 1.0;                               // Fiery Red/Orange
-                    colorsArray[colorIdx + 1] = 0.2 + (normalizedIntensity * 0.4);
+                    colorsArray[colorIdx]     = 1.0;                               // Electric Crimson Streams
+                    colorsArray[colorIdx + 1] = 0.15 + (normalizedIntensity * 0.35);
                     colorsArray[colorIdx + 2] = 0.3;
                 }
             }
