@@ -1,15 +1,3 @@
-</script> <script src="..."></script> </style> ```
-There was a stray `</style>` tag hiding right inside the middle of the OrbitControls script import block. Because of that, the browser got confused, closed out the page logic prematurely, and gave up—resulting in that blank white screen. 
-
-Also, to give you a **true physical globe** with accurate coastlines and continents that look realistic (instead of just generic blocky boxes), we are going to use an inline SVG string of the world map directly inside the code. This ensures it loads instantly, remains completely immune to browser security blocks, and shows you exactly where you are looking at all times!
-
----
-
-### The Final, Fully Verified Code for `index.html`
-
-Go to your `index.html` on GitHub, click the **Pencil icon**, clear out everything completely, and paste this fresh, clean version:
-
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -82,40 +70,50 @@ Go to your `index.html` on GitHub, click the **Pencil icon**, clear out everythi
 
         const globeRadius = 60;
 
-        // --- 2. FOOLPROOF TEXTURE GENERATOR (Generates real continents via an Image asset link) ---
-        const textureLoader = new THREE.TextureLoader();
+        // --- 2. GENERATE LAND & OCEANS VIA MAP TEXTURE CODE (CORS Security Proof) ---
+        const mapCanvas = document.createElement('canvas');
+        mapCanvas.width = 1024;
+        mapCanvas.height = 512;
+        const ctx = mapCanvas.getContext('2d');
+
+        // Draw Dark Blue Oceans
+        ctx.fillStyle = '#0a1124';
+        ctx.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
+
+        // Draw High-Visibility Teal/Slate Continents (Simplified Global Geometries)
+        ctx.fillStyle = '#1e293b';
         
-        // High-contrast, completely cloudless topographic map hosted reliably on Wikimedia assets
-        const earthTexture = textureLoader.load(
-            'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Earthmap1000x500compac.jpg/640px-Earthmap1000x500compac.jpg',
-            function (texture) {
-                // This triggers the instant the map downloads successfully
-                renderer.render(scene, camera);
-            }
-        );
+        // Approximated World Map Shapes to ground your spatial orientation instantly
+        ctx.fillRect(150, 100, 250, 180); // North America
+        ctx.fillRect(280, 280, 120, 200); // South America
+        ctx.fillRect(450, 80, 450, 220);  // Eurasia
+        ctx.fillRect(480, 220, 140, 180); // Africa
+        ctx.fillRect(780, 320, 120, 90);  // Australia
+        ctx.fillRect(0, 470, 1024, 42);   // Antarctica
+
+        const earthTexture = new THREE.CanvasTexture(mapCanvas);
 
         const landGlobeGeo = new THREE.SphereGeometry(globeRadius - 0.3, 45, 45);
         const landGlobeMat = new THREE.MeshBasicMaterial({
             map: earthTexture,
-            color: 0x1e293b, // Tints land silhouettes into a clean, modern cyber-blueprint style
             transparent: true,
-            opacity: 0.65    // Ensures the map remains crisp without overwhelming the particle vectors
+            opacity: 0.85
         });
         const landGlobe = new THREE.Mesh(landGlobeGeo, landGlobeMat);
         scene.add(landGlobe);
 
-        // Highly visible longitudinal/latitudinal wireframe tracking grid
+        // Grid Lines (Latitudes and Longitudes)
         const gridGeo = new THREE.SphereGeometry(globeRadius - 0.1, 24, 12);
         const gridMat = new THREE.MeshBasicMaterial({
             color: 0x334155,
             wireframe: true,
             transparent: true,
-            opacity: 0.4
+            opacity: 0.3
         });
         const gridGlobe = new THREE.Mesh(gridGeo, gridMat);
         scene.add(gridGlobe);
 
-        // Bold line identifying the Equator
+        // Equator Line
         const equatorGeo = new THREE.TorusGeometry(globeRadius, 0.15, 4, 64);
         const equatorMat = new THREE.MeshBasicMaterial({ color: 0x4f5e75 });
         const equator = new THREE.Mesh(equatorGeo, equatorMat);
@@ -125,7 +123,7 @@ Go to your `index.html` on GitHub, click the **Pencil icon**, clear out everythi
         // --- 3. DATA AND ENGINE RUNTIME FIELDS ---
         let weatherData = null; 
         let particleSystem = null;
-        let particleCount = 25000; 
+        let particleCount = 20000; 
         let particleData = [];
         let positionsArray, colorsArray, ageArray;
 
@@ -200,8 +198,7 @@ Go to your `index.html` on GitHub, click the **Pencil icon**, clear out everythi
                         vColor = color;
                         vAlpha = 1.0 - pAge; 
                         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                        // Dynamic calculation sizes points dynamically based on viewport distance
-                        gl_PointSize = 2.4 * (130.0 / -mvPosition.z);
+                        gl_PointSize = 2.0 * (130.0 / -mvPosition.z);
                         gl_Position = projectionMatrix * mvPosition;
                     }
                 `,
@@ -210,7 +207,7 @@ Go to your `index.html` on GitHub, click the **Pencil icon**, clear out everythi
                     varying float vAlpha;
                     void main() {
                         if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
-                        gl_FragColor = vec4(vColor, vAlpha * 0.9);
+                        gl_FragColor = vec4(vColor, vAlpha * 0.85);
                     }
                 `,
                 transparent: true,
