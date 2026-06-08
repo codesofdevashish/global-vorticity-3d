@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Global Vorticity Map & 12h Motion Trails</title>
+    <title>3D Global Vorticity Map & Motion Trails</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #060913; }
+        body { margin: 0; overflow: hidden; background-color: #030712; }
         canvas { display: block; }
     </style>
 </head>
@@ -32,7 +32,7 @@
 
         <div class="space-y-2 border-t border-slate-900 pt-3 text-xs text-slate-400">
             <div class="flex justify-between"><span>Active Stream Particles:</span><span class="font-mono text-slate-200" id="particle-count">0</span></div>
-            <div class="flex justify-between"><span>Visual Mode:</span><span class="font-mono text-cyan-500">12h Path Trails</span></div>
+            <div class="flex justify-between"><span>Visual Mode:</span><span class="font-mono text-cyan-500">Global Flow Trails</span></div>
             <div class="flex justify-between"><span>Status:</span><span class="font-mono text-emerald-400 font-bold" id="status-text">Loading Data...</span></div>
         </div>
     </div>
@@ -40,10 +40,10 @@
     <div class="absolute bottom-6 right-6 bg-slate-950/90 backdrop-blur-md px-4 py-3 rounded-lg border border-slate-800 text-white z-10 shadow-2xl text-xs max-w-xs">
         <p class="font-semibold text-slate-300 mb-2 tracking-wide uppercase text-[10px]">Relative Vorticity Legend ($s^{-1}$)</p>
         <div class="h-3 w-full rounded bg-gradient-to-r from-red-600 via-orange-400 via-slate-800 via-cyan-500 to-emerald-400"></div>
-        <div class="flex justify-between font-mono text-[10px] text-slate-400 mt-1">
-            <span>-5.0×10⁻⁴<br><span class="text-red-400">Anticyclonic (High)</span></span>
+        <div class="flex justify-between font-mono text-[10px] text-slate-400 mt-1 gap-4">
+            <span>-5.0×10⁻⁴<br><span class="text-red-400">Anticyclonic</span></span>
             <span class="text-center">0.0<br>Neutral</span>
-            <span class="text-right">+5.0×10⁻⁴<br><span class="text-emerald-400">Cyclonic (Storms)</span></span>
+            <span class="text-right">+5.0×10⁻⁴<br><span class="text-emerald-400">Cyclonic</span></span>
         </div>
     </div>
 
@@ -57,11 +57,10 @@
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.set(0, 0, 140);
 
-        // Turn preserveDrawingBuffer TRUE so old particle frames stay on screen to build lines
-        const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+        // Standard setup WITHOUT preserveDrawingBuffer to avoid ring artifacts on screen edges
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Lock resolution multiplier
-        renderer.autoClear = false; // Prevent WebGL from instantly wiping everything out
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         container.appendChild(renderer.domElement);
 
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -72,43 +71,37 @@
 
         const globeRadius = 60;
 
-        // --- 2. THE GEOMETRICAL BASE GLOBE GROUP ---
-        // Placing everything inside a main group makes it simple to turn together
-        const globeGroup = new THREE.Group();
-        scene.add(globeGroup);
-
-        // A highly reflective solid sphere base representing the Earth
-        const solidGlobeGeo = new THREE.SphereGeometry(globeRadius - 0.4, 45, 45);
-        const solidGlobeMat = new THREE.MeshBasicMaterial({
-            color: 0x070d1a, // Dark slate-blue base hue
-        });
+        // --- 2. MULTI-LAYER HIGH VISIBILITY GLOBE ---
+        // Solid Earth base sphere
+        const solidGlobeGeo = new THREE.SphereGeometry(globeRadius - 0.5, 36, 36);
+        const solidGlobeMat = new THREE.MeshBasicMaterial({ color: 0x0b1329 });
         const solidGlobe = new THREE.Mesh(solidGlobeGeo, solidGlobeMat);
-        globeGroup.add(solidGlobe);
+        scene.add(solidGlobe);
 
-        // A bright geometric blueprint grid layout (Every 15 degrees)
-        const gridGeo = new THREE.SphereGeometry(globeRadius, 24, 12);
+        // Highly visible longitudinal/latitudinal wireframe grid mapped explicitly to standard coordinates
+        const gridGeo = new THREE.SphereGeometry(globeRadius - 0.2, 24, 12);
         const gridMat = new THREE.MeshBasicMaterial({
-            color: 0x1e293b, 
+            color: 0x1e293b,
             wireframe: true,
             transparent: true,
-            opacity: 0.6 // Increased opacity for explicit visibility
+            opacity: 0.7
         });
         const gridGlobe = new THREE.Mesh(gridGeo, gridMat);
-        globeGroup.add(gridGlobe);
+        scene.add(gridGlobe);
 
-        // Add a bold horizontal neon ring identifying the Equator
-        const equatorGeo = new THREE.TorusGeometry(globeRadius + 0.1, 0.1, 4, 64);
-        const equatorMat = new THREE.MeshBasicMaterial({ color: 0x334155, transparent: true, opacity: 0.7 });
+        // Explicit reference ring defining the Equator line
+        const equatorGeo = new THREE.TorusGeometry(globeRadius - 0.1, 0.2, 4, 64);
+        const equatorMat = new THREE.MeshBasicMaterial({ color: 0x334155 });
         const equator = new THREE.Mesh(equatorGeo, equatorMat);
         equator.rotation.x = Math.PI / 2;
-        globeGroup.add(equator);
+        scene.add(equator);
 
-        // --- 3. ENGINE APPLICATION DATA STATES ---
+        // --- 3. DATA AND ENGINE RUNTIME FIELDS ---
         let weatherData = null; 
         let particleSystem = null;
-        let particleCount = 0;
+        let particleCount = 25000; // High particle pool density ensures filled tracks across the face
         let particleData = [];
-        let positionsArray, colorsArray;
+        let positionsArray, colorsArray, ageArray;
 
         const pressureLevelsText = [
             "1000 hPa (Surface)", "900 hPa (Lower Boundary)", "850 hPa (Low-Atmosphere)", 
@@ -129,12 +122,12 @@
                 
                 initParticleEngine();
             } catch (err) {
-                console.error("Data loading failure: ", err);
+                console.error("Data processing fault: ", err);
                 document.getElementById('status-text').innerText = "Data Load Error";
             }
         }
 
-        // --- 5. DATA MATRIX RESOLUTION LOOKUP ---
+        // --- 5. DATA MATRIX LOOKUP ---
         function getRealVorticity(latRad, lonRad, levelIdx) {
             if (!weatherData) return 0;
 
@@ -154,42 +147,46 @@
             return weatherData.vorticity_data[levelIdx][latIdx][lonIdx];
         }
 
-        // --- 6. CUSTOM PARTICLE ENGINES (WITH SHADER SCALING) ---
+        // --- 6. SHADER ENGINE WITH NATIVE ALPHA-DECAY FOR SMOOTH MOTION PATHS ---
         function initParticleEngine() {
-            particleCount = 20000; 
             document.getElementById('particle-count').innerText = particleCount.toLocaleString();
 
             const geometry = new THREE.BufferGeometry();
             positionsArray = new Float32Array(particleCount * 3);
             colorsArray = new Float32Array(particleCount * 3);
+            ageArray = new Float32Array(particleCount); // Sends individual trail lifetimes directly to GPU
 
             for (let i = 0; i < particleCount; i++) {
-                resetParticleState(i);
+                resetParticleState(i, true); // Distribute uniformly across the face
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positionsArray, 3));
             geometry.setAttribute('color', new THREE.BufferAttribute(colorsArray, 3));
+            geometry.setAttribute('pAge', new THREE.BufferAttribute(ageArray, 1));
 
-            // CUSTOM WEBGL SHADER: Fixes giant blocky square issues!
-            // This forces particle points to stay thin, razor-sharp vector points regardless of monitor pixel density.
+            // CUSTOM WEBGL MOTION SHADER
+            // This forces particles to fade out gradually along their path, drawing trails across the globe face
             const material = new THREE.ShaderMaterial({
                 vertexShader: `
                     attribute vec3 color;
+                    attribute float pAge;
                     varying vec3 vColor;
+                    varying float vAlpha;
                     void main() {
                         vColor = color;
+                        // Fade particles linearly as they approach maximum lifecycle age
+                        vAlpha = 1.0 - pAge; 
                         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                        // Scales point thickness perfectly based on camera distance (Z-depth)
-                        gl_PointSize = 1.8 * (140.0 / -mvPosition.z); 
+                        gl_PointSize = 2.0 * (130.0 / -mvPosition.z);
                         gl_Position = projectionMatrix * mvPosition;
                     }
                 `,
                 fragmentShader: `
                     varying vec3 vColor;
+                    varying float vAlpha;
                     void main() {
-                        // Makes the vector dots clean round circles rather than square boxes
                         if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
-                        gl_FragColor = vec4(vColor, 0.85);
+                        gl_FragColor = vec4(vColor, vAlpha * 0.8);
                     }
                 `,
                 transparent: true,
@@ -200,27 +197,19 @@
             particleSystem = new THREE.Points(geometry, material);
             scene.add(particleSystem);
 
-            // A localized transparent mesh placed in front of the camera to create the trail decay
-            const fadeOverlayGeo = new THREE.PlaneGeometry(2, 2);
-            const fadeOverlayMat = new THREE.MeshBasicMaterial({
-                color: 0x060913, // Matches space background color
-                transparent: true,
-                opacity: 0.05   // Lower number = longer 12h-style vector paths!
-            });
-            fadeOverlay = new THREE.Mesh(fadeOverlayGeo, fadeOverlayMat);
-            
             animateLoop();
         }
 
-        function resetParticleState(i) {
+        function resetParticleState(i, randomAge = false) {
             const phi = Math.acos(Math.random() * 2 - 1);
             const theta = Math.random() * Math.PI * 2;
 
+            const maxLife = 30 + Math.floor(Math.random() * 40);
             particleData[i] = {
                 phi: phi,
                 theta: theta,
-                age: 0,
-                maxAge: 20 + Math.floor(Math.random() * 40)
+                age: randomAge ? Math.floor(Math.random() * maxLife) : 0,
+                maxAge: maxLife
             };
 
             updateGeometryBuffers(i, phi, theta);
@@ -228,47 +217,41 @@
 
         function updateGeometryBuffers(i, phi, theta) {
             const idx = i * 3;
-            const dynamicRadius = globeRadius + 0.4 + (currentLevelIndex * 0.4);
+            const dynamicRadius = globeRadius + 0.5 + (currentLevelIndex * 0.3);
 
             positionsArray[idx]     = dynamicRadius * Math.sin(phi) * Math.cos(theta);
             positionsArray[idx + 1] = dynamicRadius * Math.cos(phi);
             positionsArray[idx + 2] = dynamicRadius * Math.sin(phi) * Math.sin(theta);
         }
 
-        // --- 7. DYNAMIC WIND TRAIL DOUBLE-RENDER LOOP ---
+        // --- 7. ANIMATION FLOW LOOP ---
         function animateLoop() {
             requestAnimationFrame(animateLoop);
 
-            // CRITICAL TECHNIQUE FOR TRAILS & HIGH VISIBILITY GLOBES:
-            // 1. We tell the renderer to wipe out the old background layer using a fading black curtain.
-            renderer.clearDepth(); 
-            scene.add(camera);
-            camera.add(fadeOverlay);
-            fadeOverlay.position.set(0, 0, -1); 
-            
-            // 2. Animate and step positions
-            globeGroup.rotation.y += 0.0003;
-            particleSystem.rotation.y += 0.0003;
-
             const posAttr = particleSystem.geometry.attributes.position;
             const colAttr = particleSystem.geometry.attributes.color;
+            const ageAttr = particleSystem.geometry.attributes.pAge;
 
             for (let i = 0; i < particleCount; i++) {
                 let p = particleData[i];
                 p.age += 1;
 
                 if (p.age >= p.maxAge) {
-                    resetParticleState(i);
+                    resetParticleState(i, false);
                     continue;
                 }
+
+                // Update GPU data arrays
+                ageArray[i] = p.age / p.maxAge;
 
                 const latRad = Math.PI / 2 - p.phi;
                 const lonRad = p.theta;
 
                 const voVal = getRealVorticity(latRad, lonRad, currentLevelIndex);
-                const speedScale = voVal * 4500;
-                const baseZonalFlow = 0.45; 
+                const speedScale = voVal * 4000;
+                const baseZonalFlow = 0.4; 
 
+                // Advection steps mapping continuous movement
                 p.phi   -= (Math.sin(lonRad * 3) * speedScale) * 0.002;
                 p.theta += (baseZonalFlow + Math.cos(latRad * 2) * speedScale) * 0.002;
 
@@ -277,32 +260,24 @@
                 const colorIdx = i * 3;
                 const normalizedIntensity = Math.min(Math.abs(voVal) * 25000, 1.0);
 
-                // High-visibility color channels
+                // Intense neon data color routing
                 if (voVal >= 0) {
                     colorsArray[colorIdx]     = 0.0;
-                    colorsArray[colorIdx + 1] = 0.5 + (normalizedIntensity * 0.5); // Radiant Storm Green/Cyan
-                    colorsArray[colorIdx + 2] = 0.8 + (normalizedIntensity * 0.2);
+                    colorsArray[colorIdx + 1] = 0.4 + (normalizedIntensity * 0.6); // Cyan-Green Cyclonic Streams
+                    colorsArray[colorIdx + 2] = 0.9;
                 } else {
-                    colorsArray[colorIdx]     = 0.9 + (normalizedIntensity * 0.1); // Bright Crimson Anticyclones
-                    colorsArray[colorIdx + 1] = 0.2;
+                    colorsArray[colorIdx]     = 1.0;                               // Orange-Crimson Anticyclones
+                    colorsArray[colorIdx + 1] = 0.2 + (normalizedIntensity * 0.4);
                     colorsArray[colorIdx + 2] = 0.3;
                 }
             }
 
             posAttr.needsUpdate = true;
             colAttr.needsUpdate = true;
-            controls.update();
+            ageAttr.needsUpdate = true;
 
-            // 3. Render the particle trails onto the screen
+            controls.update();
             renderer.render(scene, camera);
-            
-            // 4. Clean the camera overlay and instantly re-render the solid globe on top.
-            // This forces the physical reference sphere to stay perfectly visible behind the trails without erasing them!
-            camera.remove(fadeOverlay);
-            scene.remove(camera);
-            
-            renderer.clear(false, true, false); // Clear only the depth buffer to draw solid models cleanly
-            renderer.render(globeGroup, camera);
         }
 
         // --- 8. UI SLIDER CONTROLS ---
@@ -313,10 +288,9 @@
             currentLevelIndex = parseInt(e.target.value);
             display.innerText = pressureLevelsText[currentLevelIndex];
             
-            renderer.clear();
             if (particleSystem) {
                 for (let i = 0; i < particleCount; i++) {
-                    resetParticleState(i);
+                    resetParticleState(i, true);
                 }
             }
         });
