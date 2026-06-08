@@ -8,29 +8,29 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #05050a; }
+        body { margin: 0; overflow: hidden; background-color: #030712; }
         canvas { display: block; }
     </style>
 </head>
 <body>
 
-    <div class="absolute top-4 left-4 bg-slate-900/90 backdrop-blur-md p-6 rounded-xl border border-slate-700/50 text-white max-w-sm z-10 shadow-2xl">
+    <div class="absolute top-4 left-4 bg-slate-950/95 backdrop-blur-md p-6 rounded-xl border border-slate-800 text-white max-w-sm z-10 shadow-2xl">
         <h1 class="text-xl font-bold tracking-wide text-cyan-400 mb-1">Global 3D Vorticity</h1>
         <p class="text-xs text-slate-400 mb-4">ECMWF Reanalysis Data • May 2026</p>
         
         <div class="mb-4">
-            <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Active Pressure Level</label>
-            <div class="flex items-center justify-between bg-slate-800 p-2 rounded-lg border border-slate-700">
+            <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Active Pressure Level</label>
+            <div class="flex items-center justify-between bg-slate-900 p-2 rounded-lg border border-slate-800">
                 <span id="level-display" class="text-sm font-mono text-emerald-400 font-bold">500 hPa (Mid-Trop / Storms)</span>
             </div>
-            <input id="level-slider" type="range" min="0" max="10" value="6" class="w-full mt-2 accent-cyan-500 bg-slate-700 h-1 rounded-lg appearance-none cursor-pointer">
+            <input id="level-slider" type="range" min="0" max="10" value="6" class="w-full mt-2 accent-cyan-500 bg-slate-800 h-1 rounded-lg appearance-none cursor-pointer">
             <div class="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
                 <span>1000 hPa (Surf)</span>
                 <span>10 hPa (Strat)</span>
             </div>
         </div>
 
-        <div class="space-y-2 border-t border-slate-800 pt-3 text-xs text-slate-400">
+        <div class="space-y-2 border-t border-slate-900 pt-3 text-xs text-slate-400">
             <div class="flex justify-between"><span>Active Stream Particles:</span><span class="font-mono text-slate-200" id="particle-count">0</span></div>
             <div class="flex justify-between"><span>Visual Mode:</span><span class="font-mono text-cyan-500">12h Path Trails</span></div>
             <div class="flex justify-between"><span>Status:</span><span class="font-mono text-emerald-400 font-bold" id="status-text">Loading Data...</span></div>
@@ -45,47 +45,45 @@
         const scene = new THREE.Scene();
 
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 0, 160);
+        camera.position.set(0, 0, 150);
 
-        // WINDY-STYLE EFFCT: Enable "preserveDrawingBuffer" so we can manually fade past frames
+        // Enable preserveDrawingBuffer for the smooth trail blending logic
         const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.autoClearColor = false; // Stop the renderer from instantly wiping particle trails
+        renderer.autoClearColor = false; 
         container.appendChild(renderer.domElement);
 
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
-        controls.minDistance = 90;
-        controls.maxDistance = 250;
+        controls.minDistance = 80;
+        controls.maxDistance = 220;
 
         const globeRadius = 60;
 
-        // --- 2. ADD LAND AND SEA BOUNDARIES ---
-        // We project a high-resolution outline map of world continents directly onto our 3D globe geometry
+        // --- 2. ADD CLEAN, DARK LAND/SEA MAP BOUNDARIES ---
+        // Swapping to a clean, cloudless, dark blueprint map style so it acts as a subtle background grid
         const textureLoader = new THREE.TextureLoader();
-        // Using a reliable open-source global coastlines texture map
-        const mapUrl = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmosphere.jpg';
+        const mapUrl = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_lights_2048.png';
         
         const globeGeo = new THREE.SphereGeometry(globeRadius, 45, 45);
         const globeMat = new THREE.MeshBasicMaterial({
             map: textureLoader.load(mapUrl),
-            color: 0x111c30, // Deep ocean base color
-            wireframe: false,
+            color: 0x0f172a, // Subtle midnight-blue hue for oceans and landmass silhouettes
             transparent: true,
-            opacity: 0.6
+            opacity: 0.4
         });
         const globe = new THREE.Mesh(globeGeo, globeMat);
         scene.add(globe);
 
-        // Add an extra glowing outline grid for grid reference lines
-        const gridGeo = new THREE.SphereGeometry(globeRadius + 0.1, 30, 15);
+        // Fine grid lines to help with global tracking orientation
+        const gridGeo = new THREE.SphereGeometry(globeRadius + 0.05, 36, 18);
         const gridMat = new THREE.MeshBasicMaterial({
-            color: 0x334155,
+            color: 0x1e293b,
             wireframe: true,
             transparent: true,
-            opacity: 0.15
+            opacity: 0.2
         });
         const gridGlobe = new THREE.Mesh(gridGeo, gridMat);
         scene.add(gridGlobe);
@@ -143,7 +141,7 @@
 
         // --- 6. PARTICLE ENGINE SETUP ---
         function initParticleEngine() {
-            particleCount = 18000; // More particles fill out the lines beautifully
+            particleCount = 20000; // Increased count to compensate for smaller size
             document.getElementById('particle-count').innerText = particleCount.toLocaleString();
 
             const geometry = new THREE.BufferGeometry();
@@ -157,11 +155,12 @@
             geometry.setAttribute('position', new THREE.BufferAttribute(positionsArray, 3));
             geometry.setAttribute('color', new THREE.BufferAttribute(colorsArray, 3));
 
+            // CRITICAL CHANGE: Shrunk point size to 0.25 for sharp, razor-thin lines
             const material = new THREE.PointsMaterial({
-                size: 0.9,
+                size: 0.25,
                 vertexColors: true,
                 transparent: true,
-                opacity: 0.9,
+                opacity: 0.8,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
@@ -169,13 +168,12 @@
             particleSystem = new THREE.Points(geometry, material);
             scene.add(particleSystem);
 
-            // Set up a semi-transparent screen overlay mesh to slowly hide old particle points
-            // This creates the perfect trailing fluid lines!
+            // Semi-transparent overlay mask to control trail lengths
             const fadeOverlayGeo = new THREE.PlaneGeometry(2, 2);
             fadeOverlayMat = new THREE.MeshBasicMaterial({
-                color: 0x05050a,
+                color: 0x030712, // Matches background space exactly
                 transparent: true,
-                opacity: 0.08  // Adjust this opacity to make trails longer (lower number) or shorter (higher number)
+                opacity: 0.06   // Controls velocity trail length decay
             });
             fadeOverlay = new THREE.Mesh(fadeOverlayGeo, fadeOverlayMat);
             fadeOverlay.material.depthTest = false;
@@ -192,7 +190,7 @@
                 phi: phi,
                 theta: theta,
                 age: 0,
-                maxAge: 30 + Math.floor(Math.random() * 50) // Shorter lifespan keeps trails fresh
+                maxAge: 25 + Math.floor(Math.random() * 45) // Short lifespans limit trailing clutter
             };
 
             updateGeometryBuffers(i, phi, theta);
@@ -200,7 +198,8 @@
 
         function updateGeometryBuffers(i, phi, theta) {
             const idx = i * 3;
-            const dynamicRadius = globeRadius + 0.5 + (currentLevelIndex * 0.8);
+            // Keeps flow slightly suspended right above map details
+            const dynamicRadius = globeRadius + 0.3 + (currentLevelIndex * 0.4);
 
             positionsArray[idx]     = dynamicRadius * Math.sin(phi) * Math.cos(theta);
             positionsArray[idx + 1] = dynamicRadius * Math.cos(phi);
@@ -211,20 +210,19 @@
         function animateLoop() {
             requestAnimationFrame(animateLoop);
 
-            // 1. Draw a fading black curtain over the screen before drawing the new positions.
-            // This leaves the last few frames slightly visible, creating the "12-hour path trail" lines.
+            // Apply frame rendering trail alpha masking
             renderer.getClearColor(fadeOverlayMat.color);
             scene.add(camera);
             camera.add(fadeOverlay);
-            fadeOverlay.position.set(0, 0, -1); // Anchor directly in front of camera view
+            fadeOverlay.position.set(0, 0, -1); 
 
             const posAttr = particleSystem.geometry.attributes.position;
             const colAttr = particleSystem.geometry.attributes.color;
 
-            // Slowly spin our base earth maps
-            globe.rotation.y += 0.0004;
-            gridGlobe.rotation.y += 0.0004;
-            particleSystem.rotation.y += 0.0004;
+            // Fluid planetary global drift adjustments
+            globe.rotation.y += 0.0003;
+            gridGlobe.rotation.y += 0.0003;
+            particleSystem.rotation.y += 0.0003;
 
             for (let i = 0; i < particleCount; i++) {
                 let p = particleData[i];
@@ -240,26 +238,26 @@
 
                 const voVal = getRealVorticity(latRad, lonRad, currentLevelIndex);
                 const speedScale = voVal * 4500;
-                const baseZonalFlow = 0.5; // Constant global trade-wind movement
+                const baseZonalFlow = 0.4; 
 
-                // Fluid vector step shifting
+                // Differential spatial tracking displacement stepping
                 p.phi   -= (Math.sin(lonRad * 3) * speedScale) * 0.002;
                 p.theta += (baseZonalFlow + Math.cos(latRad * 2) * speedScale) * 0.002;
 
                 updateGeometryBuffers(i, p.phi, p.theta);
 
                 const colorIdx = i * 3;
-                const normalizedIntensity = Math.min(Math.abs(voVal) * 22000, 1.0);
+                const normalizedIntensity = Math.min(Math.abs(voVal) * 25000, 1.0);
 
-                // Color profiles matching rotation energy scales
+                // High-visibility neon contrast palettes
                 if (voVal >= 0) {
                     colorsArray[colorIdx]     = 0.0;
-                    colorsArray[colorIdx + 1] = 0.4 + (normalizedIntensity * 0.6); // Cyan-Green currents
-                    colorsArray[colorIdx + 2] = 0.7 + (normalizedIntensity * 0.3);
+                    colorsArray[colorIdx + 1] = 0.5 + (normalizedIntensity * 0.5); // Radiant Neon Cyan/Green
+                    colorsArray[colorIdx + 2] = 0.9;
                 } else {
-                    colorsArray[colorIdx]     = 0.6 + (normalizedIntensity * 0.4); // Deep orange-crimson streams
-                    colorsArray[colorIdx + 1] = 0.1;
-                    colorsArray[colorIdx + 2] = 0.4;
+                    colorsArray[colorIdx]     = 1.0;                               // Fiery Red/Orange
+                    colorsArray[colorIdx + 1] = 0.2 + (normalizedIntensity * 0.4);
+                    colorsArray[colorIdx + 2] = 0.3;
                 }
             }
 
@@ -267,16 +265,13 @@
             colAttr.needsUpdate = true;
 
             controls.update();
-            
-            // Render everything smoothly
             renderer.render(scene, camera);
             
-            // Clean out the camera layout frame for the next pass
             camera.remove(fadeOverlay);
             scene.remove(camera);
         }
 
-        // --- 8. UI SLIDER ADJUSTMENTS ---
+        // --- 8. UI SLIDER CONTROLS ---
         const slider = document.getElementById('level-slider');
         const display = document.getElementById('level-display');
 
@@ -284,7 +279,6 @@
             currentLevelIndex = parseInt(e.target.value);
             display.innerText = pressureLevelsText[currentLevelIndex];
             
-            // Flush and clear screen instantly when changing levels to avoid messy blending overlaps
             renderer.clear();
             if (particleSystem) {
                 for (let i = 0; i < particleCount; i++) {
