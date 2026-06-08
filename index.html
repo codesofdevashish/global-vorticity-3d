@@ -8,13 +8,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #03050a; }
+        body { margin: 0; overflow: hidden; background-color: #020408; }
         canvas { display: block; }
     </style>
 </head>
 <body>
 
-    <div class="absolute top-4 left-4 bg-slate-950/95 backdrop-blur-md p-6 rounded-xl border border-slate-800 text-white max-w-sm z-10 shadow-2xl">
+    <div class="absolute top-4 left-4 bg-slate-950/90 backdrop-blur-md p-6 rounded-xl border border-slate-800 text-white max-w-sm z-10 shadow-2xl">
         <h1 class="text-xl font-bold tracking-wide text-cyan-400 mb-1">Global 3D Vorticity</h1>
         <p class="text-xs text-slate-400 mb-4">ECMWF Reanalysis Data • May 2026</p>
         
@@ -32,7 +32,7 @@
 
         <div class="space-y-2 border-t border-slate-900 pt-3 text-xs text-slate-400">
             <div class="flex justify-between"><span>Active Stream Particles:</span><span class="font-mono text-slate-200" id="particle-count">0</span></div>
-            <div class="flex justify-between"><span>Visual Mode:</span><span class="font-mono text-cyan-500">Global Flow Trails</span></div>
+            <div class="flex justify-between"><span>Visual Mode:</span><span class="font-mono text-cyan-500">Satellite Flow Overlay</span></div>
             <div class="flex justify-between"><span>Status:</span><span class="font-mono text-emerald-400 font-bold" id="status-text">Loading Data...</span></div>
         </div>
     </div>
@@ -55,7 +55,7 @@
         const scene = new THREE.Scene();
 
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 0, 140);
+        camera.position.set(0, 40, 140); // Tilted camera angle to replicate your exact screenshot layout
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -70,57 +70,53 @@
 
         const globeRadius = 60;
 
-        // --- 2. GENERATE LAND & OCEANS VIA MAP TEXTURE CODE (CORS Security Proof) ---
-        const mapCanvas = document.createElement('canvas');
-        mapCanvas.width = 1024;
-        mapCanvas.height = 512;
-        const ctx = mapCanvas.getContext('2d');
+        // --- 2. ADD SCENE LIGHTING (Crucial for Realistic Textures) ---
+        // Ambient light illuminates everything equally so oceans aren't pitch black
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+        scene.add(ambientLight);
 
-        // Draw Dark Blue Oceans
-        ctx.fillStyle = '#0a1124';
-        ctx.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
+        // Directional sunlight to create subtle depths along edge curves
+        const sunLight = new THREE.DirectionalLight(0xffffff, 0.35);
+        sunLight.position.set(5, 3, 5);
+        scene.add(sunLight);
 
-        // Draw High-Visibility Teal/Slate Continents (Simplified Global Geometries)
-        ctx.fillStyle = '#1e293b';
+        // --- 3. APPLY PHOTOREALISTIC SATELLITE TEXTURES ---
+        const textureLoader = new THREE.TextureLoader();
         
-        // Approximated World Map Shapes to ground your spatial orientation instantly
-        ctx.fillRect(150, 100, 250, 180); // North America
-        ctx.fillRect(280, 280, 120, 200); // South America
-        ctx.fillRect(450, 80, 450, 220);  // Eurasia
-        ctx.fillRect(480, 220, 140, 180); // Africa
-        ctx.fillRect(780, 320, 120, 90);  // Australia
-        ctx.fillRect(0, 470, 1024, 42);   // Antarctica
+        // High-definition cloudless global satellite color map asset
+        const satelliteTexture = textureLoader.load(
+            'https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg',
+            function(texture) {
+                renderer.render(scene, camera);
+            }
+        );
 
-        const earthTexture = new THREE.CanvasTexture(mapCanvas);
+        // Optional specular maps add natural glints over water reflections
+        const specularTexture = textureLoader.load('https://threejs.org/examples/textures/planets/earth_specular_2048.jpg');
 
-        const landGlobeGeo = new THREE.SphereGeometry(globeRadius - 0.3, 45, 45);
-        const landGlobeMat = new THREE.MeshBasicMaterial({
-            map: earthTexture,
-            transparent: true,
-            opacity: 0.85
+        const landGlobeGeo = new THREE.SphereGeometry(globeRadius, 64, 64); // Increased segments for perfect smoothness
+        const landGlobeMat = new THREE.MeshPhongMaterial({
+            map: satelliteTexture,
+            specularMap: specularTexture,
+            specular: new THREE.Color('#111111'),
+            shininess: 25,
+            bumpScale: 0.05
         });
         const landGlobe = new THREE.Mesh(landGlobeGeo, landGlobeMat);
         scene.add(landGlobe);
 
-        // Grid Lines (Latitudes and Longitudes)
-        const gridGeo = new THREE.SphereGeometry(globeRadius - 0.1, 24, 12);
+        // Subdued tracking grid wireframe layer overlay
+        const gridGeo = new THREE.SphereGeometry(globeRadius + 0.1, 36, 18);
         const gridMat = new THREE.MeshBasicMaterial({
-            color: 0x334155,
+            color: 0xffffff,
             wireframe: true,
             transparent: true,
-            opacity: 0.3
+            opacity: 0.04 // Soft look so it doesn't clutter up the geography landmarks
         });
         const gridGlobe = new THREE.Mesh(gridGeo, gridMat);
         scene.add(gridGlobe);
 
-        // Equator Line
-        const equatorGeo = new THREE.TorusGeometry(globeRadius, 0.15, 4, 64);
-        const equatorMat = new THREE.MeshBasicMaterial({ color: 0x4f5e75 });
-        const equator = new THREE.Mesh(equatorGeo, equatorMat);
-        equator.rotation.x = Math.PI / 2;
-        scene.add(equator);
-
-        // --- 3. DATA AND ENGINE RUNTIME FIELDS ---
+        // --- 4. DATA AND ENGINE RUNTIME FIELDS ---
         let weatherData = null; 
         let particleSystem = null;
         let particleCount = 20000; 
@@ -135,7 +131,7 @@
         ];
         let currentLevelIndex = 6; 
 
-        // --- 4. FETCH DATA FROM PARSED JSON ---
+        // --- 5. FETCH DATA FROM PARSED JSON ---
         async function loadData() {
             try {
                 const response = await fetch('./data_output.json');
@@ -151,7 +147,7 @@
             }
         }
 
-        // --- 5. DATA MATRIX LOOKUP ---
+        // --- 6. DATA MATRIX LOOKUP ---
         function getRealVorticity(latRad, lonRad, levelIdx) {
             if (!weatherData) return 0;
 
@@ -171,7 +167,7 @@
             return weatherData.vorticity_data[levelIdx][latIdx][lonIdx];
         }
 
-        // --- 6. SHADER ENGINE WITH NATIVE VECTOR PATH TRAILS ---
+        // --- 7. SHADER ENGINE WITH GLOW TRAIL PARTICLES ---
         function initParticleEngine() {
             document.getElementById('particle-count').innerText = particleCount.toLocaleString();
 
@@ -198,7 +194,7 @@
                         vColor = color;
                         vAlpha = 1.0 - pAge; 
                         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                        gl_PointSize = 2.0 * (130.0 / -mvPosition.z);
+                        gl_PointSize = 2.5 * (130.0 / -mvPosition.z);
                         gl_Position = projectionMatrix * mvPosition;
                     }
                 `,
@@ -207,7 +203,7 @@
                     varying float vAlpha;
                     void main() {
                         if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
-                        gl_FragColor = vec4(vColor, vAlpha * 0.85);
+                        gl_FragColor = vec4(vColor, vAlpha * 0.9);
                     }
                 `,
                 transparent: true,
@@ -225,7 +221,7 @@
             const phi = Math.acos(Math.random() * 2 - 1);
             const theta = Math.random() * Math.PI * 2;
 
-            const maxLife = 25 + Math.floor(Math.random() * 35);
+            const maxLife = 20 + Math.floor(Math.random() * 30);
             particleData[i] = {
                 phi: phi,
                 theta: theta,
@@ -238,14 +234,15 @@
 
         function updateGeometryBuffers(i, phi, theta) {
             const idx = i * 3;
-            const dynamicRadius = globeRadius + 0.5 + (currentLevelIndex * 0.4);
+            // Particles hover slightly above land features (offset by pressure heights)
+            const dynamicRadius = globeRadius + 0.8 + (currentLevelIndex * 0.4);
 
             positionsArray[idx]     = dynamicRadius * Math.sin(phi) * Math.cos(theta);
             positionsArray[idx + 1] = dynamicRadius * Math.cos(phi);
             positionsArray[idx + 2] = dynamicRadius * Math.sin(phi) * Math.sin(theta);
         }
 
-        // --- 7. ANIMATION FLOW LOOP ---
+        // --- 8. ANIMATION FLOW LOOP ---
         function animateLoop() {
             requestAnimationFrame(animateLoop);
 
@@ -253,9 +250,10 @@
             const colAttr = particleSystem.geometry.attributes.color;
             const ageAttr = particleSystem.geometry.attributes.pAge;
 
-            landGlobe.rotation.y += 0.0003;
-            gridGlobe.rotation.y += 0.0003;
-            particleSystem.rotation.y += 0.0003;
+            // Slow uniform rotation of the satellite globe and vectors
+            landGlobe.rotation.y += 0.0002;
+            gridGlobe.rotation.y += 0.0002;
+            particleSystem.rotation.y += 0.0002;
 
             for (let i = 0; i < particleCount; i++) {
                 let p = particleData[i];
@@ -281,16 +279,16 @@
                 updateGeometryBuffers(i, p.phi, p.theta);
 
                 const colorIdx = i * 3;
-                const normalizedIntensity = Math.min(Math.abs(voVal) * 25000, 1.0);
+                const normalizedIntensity = Math.min(Math.abs(voVal) * 23000, 1.0);
 
                 if (voVal >= 0) {
                     colorsArray[colorIdx]     = 0.0;
-                    colorsArray[colorIdx + 1] = 0.4 + (normalizedIntensity * 0.6); // Cyan-Green Cyclonic Winds
-                    colorsArray[colorIdx + 2] = 0.9;
+                    colorsArray[colorIdx + 1] = 0.5 + (normalizedIntensity * 0.5); // Neon Cyan Storm Tracks
+                    colorsArray[colorIdx + 2] = 1.0;
                 } else {
-                    colorsArray[colorIdx]     = 1.0;                               // Orange-Crimson Fields
-                    colorsArray[colorIdx + 1] = 0.2 + (normalizedIntensity * 0.4);
-                    colorsArray[colorIdx + 2] = 0.3;
+                    colorsArray[colorIdx]     = 1.0;                               // Fiery Orange High Pressure
+                    colorsArray[colorIdx + 1] = 0.3 + (normalizedIntensity * 0.4);
+                    colorsArray[colorIdx + 2] = 0.1;
                 }
             }
 
@@ -302,7 +300,7 @@
             renderer.render(scene, camera);
         }
 
-        // --- 8. UI SLIDER CONTROLS ---
+        // --- 9. WINDOW & SLIDER ADAPTERS ---
         const slider = document.getElementById('level-slider');
         const display = document.getElementById('level-display');
 
