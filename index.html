@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Real Global Vorticity Map (11 Layers)</title>
+    <title>3D Real Global Vorticity Map (Windy-Style Trails)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -32,7 +32,7 @@
 
         <div class="space-y-2 border-t border-slate-800 pt-3 text-xs text-slate-400">
             <div class="flex justify-between"><span>Active Stream Particles:</span><span class="font-mono text-slate-200" id="particle-count">0</span></div>
-            <div class="flex justify-between"><span>Data Array Source:</span><span class="font-mono text-cyan-500">Real NetCDF4 Map</span></div>
+            <div class="flex justify-between"><span>Visual Mode:</span><span class="font-mono text-cyan-500">12h Path Trails</span></div>
             <div class="flex justify-between"><span>Status:</span><span class="font-mono text-emerald-400 font-bold" id="status-text">Loading Data...</span></div>
         </div>
     </div>
@@ -43,14 +43,15 @@
         // --- 1. INITIALIZE SCENE & GLOBE STAGE ---
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x05050a, 0.012);
 
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.set(0, 0, 160);
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        // WINDY-STYLE EFFCT: Enable "preserveDrawingBuffer" so we can manually fade past frames
+        const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.autoClearColor = false; // Stop the renderer from instantly wiping particle trails
         container.appendChild(renderer.domElement);
 
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -59,45 +60,54 @@
         controls.minDistance = 90;
         controls.maxDistance = 250;
 
-        // Base Earth reference wireframe lines
         const globeRadius = 60;
-        const globeGeo = new THREE.SphereGeometry(globeRadius, 36, 36);
+
+        // --- 2. ADD LAND AND SEA BOUNDARIES ---
+        // We project a high-resolution outline map of world continents directly onto our 3D globe geometry
+        const textureLoader = new THREE.TextureLoader();
+        // Using a reliable open-source global coastlines texture map
+        const mapUrl = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmosphere.jpg';
+        
+        const globeGeo = new THREE.SphereGeometry(globeRadius, 45, 45);
         const globeMat = new THREE.MeshBasicMaterial({
-            color: 0x1e293b,
-            wireframe: true,
+            map: textureLoader.load(mapUrl),
+            color: 0x111c30, // Deep ocean base color
+            wireframe: false,
             transparent: true,
-            opacity: 0.12
+            opacity: 0.6
         });
         const globe = new THREE.Mesh(globeGeo, globeMat);
         scene.add(globe);
 
-        // --- 2. ENGINE APPLICATION STATES ---
+        // Add an extra glowing outline grid for grid reference lines
+        const gridGeo = new THREE.SphereGeometry(globeRadius + 0.1, 30, 15);
+        const gridMat = new THREE.MeshBasicMaterial({
+            color: 0x334155,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.15
+        });
+        const gridGlobe = new THREE.Mesh(gridGeo, gridMat);
+        scene.add(gridGlobe);
+
+        // --- 3. ENGINE APPLICATION STATES ---
         let weatherData = null; 
         let particleSystem = null;
         let particleCount = 0;
         let particleData = [];
         let positionsArray, colorsArray;
 
-        // Exactly maps your 11 custom layers extracted in shrink.py
         const pressureLevelsText = [
-            "1000 hPa (Surface)", 
-            "900 hPa (Lower Boundary)",
-            "850 hPa (Low-Atmosphere)", 
-            "800 hPa (Low-Condensation)",
-            "700 hPa (Low-Troposphere)",
-            "600 hPa (Mid-Low Layer)",
-            "500 hPa (Mid-Trop / Storms)", 
-            "400 hPa (Upper-Mid Layer)",
-            "300 hPa (Jet Stream)", 
-            "200 hPa (Tropopause)",
-            "10 hPa (Stratosphere)"
+            "1000 hPa (Surface)", "900 hPa (Lower Boundary)", "850 hPa (Low-Atmosphere)", 
+            "800 hPa (Low-Condensation)", "700 hPa (Low-Troposphere)", "600 hPa (Mid-Low Layer)",
+            "500 hPa (Mid-Trop / Storms)", "400 hPa (Upper-Mid Layer)", "300 hPa (Jet Stream)", 
+            "200 hPa (Tropopause)", "10 hPa (Stratosphere)"
         ];
-        let currentLevelIndex = 6; // Starts on Index 6 (500 hPa)
+        let currentLevelIndex = 6; 
 
-        // --- 3. FETCH DATA FROM PARSED JSON ---
+        // --- 4. FETCH DATA FROM PARSED JSON ---
         async function loadData() {
             try {
-                // Fetch the 14.6MB data file
                 const response = await fetch('./data_output.json');
                 weatherData = await response.json();
                 
@@ -108,39 +118,32 @@
             } catch (err) {
                 console.error("Data loading failure: ", err);
                 document.getElementById('status-text').innerText = "Data Load Error";
-                document.getElementById('status-text').className = "font-mono text-rose-500 font-bold";
             }
         }
 
-        // --- 4. DATA MATRIX RESOLUTION LOOKUP ---
+        // --- 5. DATA MATRIX RESOLUTION LOOKUP ---
         function getRealVorticity(latRad, lonRad, levelIdx) {
             if (!weatherData) return 0;
 
-            // Convert spatial radians back to standard latitude/longitude degrees
             let latDeg = latRad * (180 / Math.PI);
             let lonDeg = lonRad * (180 / Math.PI);
-
-            // Normalize longitude bounds from [-180, 180] back to standard GRIB [0, 360] scale
             if (lonDeg < 0) lonDeg += 360;
 
             const targetLats = weatherData.latitudes;
             const targetLons = weatherData.longitudes;
 
-            // Map grid indices based on nearest lat/lon degrees
             let latIdx = Math.floor(((90 - latDeg) / 180) * (targetLats.length - 1));
             let lonIdx = Math.floor((lonDeg / 360) * (targetLons.length - 1));
 
-            // Grid edge boundary containment guardrails
             latIdx = Math.max(0, Math.min(latIdx, targetLats.length - 1));
             lonIdx = Math.max(0, Math.min(lonIdx, targetLons.length - 1));
 
             return weatherData.vorticity_data[levelIdx][latIdx][lonIdx];
         }
 
-        // --- 5. PARTICLE ENGINE SETUP ---
+        // --- 6. PARTICLE ENGINE SETUP ---
         function initParticleEngine() {
-            // 14,000 particles create a dense fluid flow without crashing performance
-            particleCount = 14000;
+            particleCount = 18000; // More particles fill out the lines beautifully
             document.getElementById('particle-count').innerText = particleCount.toLocaleString();
 
             const geometry = new THREE.BufferGeometry();
@@ -155,7 +158,7 @@
             geometry.setAttribute('color', new THREE.BufferAttribute(colorsArray, 3));
 
             const material = new THREE.PointsMaterial({
-                size: 0.8,
+                size: 0.9,
                 vertexColors: true,
                 transparent: true,
                 opacity: 0.9,
@@ -166,19 +169,30 @@
             particleSystem = new THREE.Points(geometry, material);
             scene.add(particleSystem);
 
+            // Set up a semi-transparent screen overlay mesh to slowly hide old particle points
+            // This creates the perfect trailing fluid lines!
+            const fadeOverlayGeo = new THREE.PlaneGeometry(2, 2);
+            fadeOverlayMat = new THREE.MeshBasicMaterial({
+                color: 0x05050a,
+                transparent: true,
+                opacity: 0.08  // Adjust this opacity to make trails longer (lower number) or shorter (higher number)
+            });
+            fadeOverlay = new THREE.Mesh(fadeOverlayGeo, fadeOverlayMat);
+            fadeOverlay.material.depthTest = false;
+            fadeOverlay.material.depthWrite = false;
+
             animateLoop();
         }
 
         function resetParticleState(i) {
-            // Distribute particles randomly across a uniform sphere
-            const phi = Math.acos(Math.random() * 2 - 1); // Latitude polar angle
-            const theta = Math.random() * Math.PI * 2;    // Longitude azimuthal angle
+            const phi = Math.acos(Math.random() * 2 - 1);
+            const theta = Math.random() * Math.PI * 2;
 
             particleData[i] = {
                 phi: phi,
                 theta: theta,
                 age: 0,
-                maxAge: 40 + Math.floor(Math.random() * 80)
+                maxAge: 30 + Math.floor(Math.random() * 50) // Shorter lifespan keeps trails fresh
             };
 
             updateGeometryBuffers(i, phi, theta);
@@ -186,25 +200,31 @@
 
         function updateGeometryBuffers(i, phi, theta) {
             const idx = i * 3;
-            // Map altitude offsets visually based on which of the 11 layers is chosen
-            const dynamicRadius = globeRadius + 1.2 + (currentLevelIndex * 1.2);
+            const dynamicRadius = globeRadius + 0.5 + (currentLevelIndex * 0.8);
 
-            // Translate Spherical Geometry parameters into 3D Cartesian space points (X, Y, Z)
             positionsArray[idx]     = dynamicRadius * Math.sin(phi) * Math.cos(theta);
             positionsArray[idx + 1] = dynamicRadius * Math.cos(phi);
             positionsArray[idx + 2] = dynamicRadius * Math.sin(phi) * Math.sin(theta);
         }
 
-        // --- 6. ANIMATION & WIND FLOW ADVECTION LOOP ---
+        // --- 7. WIND FLOW TRAIL ANIMATION LOOP ---
         function animateLoop() {
             requestAnimationFrame(animateLoop);
+
+            // 1. Draw a fading black curtain over the screen before drawing the new positions.
+            // This leaves the last few frames slightly visible, creating the "12-hour path trail" lines.
+            renderer.getClearColor(fadeOverlayMat.color);
+            scene.add(camera);
+            camera.add(fadeOverlay);
+            fadeOverlay.position.set(0, 0, -1); // Anchor directly in front of camera view
 
             const posAttr = particleSystem.geometry.attributes.position;
             const colAttr = particleSystem.geometry.attributes.color;
 
-            // Slowly rotate the globe to show planetary rotation
-            globe.rotation.y += 0.0006;
-            particleSystem.rotation.y += 0.0006;
+            // Slowly spin our base earth maps
+            globe.rotation.y += 0.0004;
+            gridGlobe.rotation.y += 0.0004;
+            particleSystem.rotation.y += 0.0004;
 
             for (let i = 0; i < particleCount; i++) {
                 let p = particleData[i];
@@ -215,50 +235,48 @@
                     continue;
                 }
 
-                // Look up data positions using current angles
                 const latRad = Math.PI / 2 - p.phi;
                 const lonRad = p.theta;
 
-                // Query relative vorticity value from your 11-layered matrix array
                 const voVal = getRealVorticity(latRad, lonRad, currentLevelIndex);
+                const speedScale = voVal * 4500;
+                const baseZonalFlow = 0.5; // Constant global trade-wind movement
 
-                // Multiplier turns fractional atmospheric spinning data into moving velocities
-                const speedScale = voVal * 4000;
-                
-                // Base atmospheric zonal drift speed so elements move continuously
-                const baseZonalFlow = 0.6; 
-
-                // Dynamic vector advection displacement equations
+                // Fluid vector step shifting
                 p.phi   -= (Math.sin(lonRad * 3) * speedScale) * 0.002;
                 p.theta += (baseZonalFlow + Math.cos(latRad * 2) * speedScale) * 0.002;
 
                 updateGeometryBuffers(i, p.phi, p.theta);
 
-                // Color mapping: Cyclonic systems (positive spin) flash bright green/cyan.
-                // Anticyclonic fields (negative spin) flow in deep pinks and crimson.
                 const colorIdx = i * 3;
-                const normalizedIntensity = Math.min(Math.abs(voVal) * 20000, 1.0);
+                const normalizedIntensity = Math.min(Math.abs(voVal) * 22000, 1.0);
 
+                // Color profiles matching rotation energy scales
                 if (voVal >= 0) {
                     colorsArray[colorIdx]     = 0.0;
-                    colorsArray[colorIdx + 1] = 0.3 + (normalizedIntensity * 0.7); // Bright Green
-                    colorsArray[colorIdx + 2] = 0.6 + (normalizedIntensity * 0.4); // Deep Cyan
+                    colorsArray[colorIdx + 1] = 0.4 + (normalizedIntensity * 0.6); // Cyan-Green currents
+                    colorsArray[colorIdx + 2] = 0.7 + (normalizedIntensity * 0.3);
                 } else {
-                    colorsArray[colorIdx]     = 0.5 + (normalizedIntensity * 0.5); // Warm Crimson
+                    colorsArray[colorIdx]     = 0.6 + (normalizedIntensity * 0.4); // Deep orange-crimson streams
                     colorsArray[colorIdx + 1] = 0.1;
                     colorsArray[colorIdx + 2] = 0.4;
                 }
             }
 
-            // Tell the GPU to update the particle coordinates on the screen
             posAttr.needsUpdate = true;
             colAttr.needsUpdate = true;
 
             controls.update();
+            
+            // Render everything smoothly
             renderer.render(scene, camera);
+            
+            // Clean out the camera layout frame for the next pass
+            camera.remove(fadeOverlay);
+            scene.remove(camera);
         }
 
-        // --- 7. SLIDER UI BINDINGS ---
+        // --- 8. UI SLIDER ADJUSTMENTS ---
         const slider = document.getElementById('level-slider');
         const display = document.getElementById('level-display');
 
@@ -266,7 +284,8 @@
             currentLevelIndex = parseInt(e.target.value);
             display.innerText = pressureLevelsText[currentLevelIndex];
             
-            // Re-render and position particles instantly when shifting height layers
+            // Flush and clear screen instantly when changing levels to avoid messy blending overlaps
+            renderer.clear();
             if (particleSystem) {
                 for (let i = 0; i < particleCount; i++) {
                     resetParticleState(i);
@@ -280,7 +299,6 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        // Bootstrap sequence
         loadData();
     </script>
 </body>
