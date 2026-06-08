@@ -8,7 +8,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #030712; }
+        body { margin: 0; overflow: hidden; background-color: #03050a; }
         canvas { display: block; }
     </style>
 </head>
@@ -57,7 +57,6 @@
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.set(0, 0, 140);
 
-        // Standard setup WITHOUT preserveDrawingBuffer to avoid ring artifacts on screen edges
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -71,27 +70,41 @@
 
         const globeRadius = 60;
 
-        // --- 2. MULTI-LAYER HIGH VISIBILITY GLOBE ---
-        // Solid Earth base sphere
-        const solidGlobeGeo = new THREE.SphereGeometry(globeRadius - 0.5, 36, 36);
-        const solidGlobeMat = new THREE.MeshBasicMaterial({ color: 0x0b1329 });
+        // --- 2. HIGH-VISIBILITY MAP LAYOUTS ---
+        // Solid Earth base sphere (Oceans)
+        const solidGlobeGeo = new THREE.SphereGeometry(globeRadius - 0.6, 40, 40);
+        const solidGlobeMat = new THREE.MeshBasicMaterial({ color: 0x090f1d });
         const solidGlobe = new THREE.Mesh(solidGlobeGeo, solidGlobeMat);
         scene.add(solidGlobe);
 
-        // Highly visible longitudinal/latitudinal wireframe grid mapped explicitly to standard coordinates
-        const gridGeo = new THREE.SphereGeometry(globeRadius - 0.2, 24, 12);
+        // Map Texture: Deep contrasted continent outlines without messy cloud layers
+        const textureLoader = new THREE.TextureLoader();
+        const landMapTexture = textureLoader.load('https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73909/world.topo.bathy.200412.3x5400x2700.jpg');
+        
+        const landGlobeGeo = new THREE.SphereGeometry(globeRadius - 0.3, 45, 45);
+        const landGlobeMat = new THREE.MeshBasicMaterial({
+            map: landMapTexture,
+            color: 0x1e293b, // Tint the map into a dark cyber blueprint theme
+            transparent: true,
+            opacity: 0.65    // Keeps land visible without drowning out neon particle streams
+        });
+        const landGlobe = new THREE.Mesh(landGlobeGeo, landGlobeMat);
+        scene.add(landGlobe);
+
+        // Highly visible tracking grid wireframe overlay
+        const gridGeo = new THREE.SphereGeometry(globeRadius - 0.1, 24, 12);
         const gridMat = new THREE.MeshBasicMaterial({
-            color: 0x1e293b,
+            color: 0x334155,
             wireframe: true,
             transparent: true,
-            opacity: 0.7
+            opacity: 0.3
         });
         const gridGlobe = new THREE.Mesh(gridGeo, gridMat);
         scene.add(gridGlobe);
 
-        // Explicit reference ring defining the Equator line
-        const equatorGeo = new THREE.TorusGeometry(globeRadius - 0.1, 0.2, 4, 64);
-        const equatorMat = new THREE.MeshBasicMaterial({ color: 0x334155 });
+        // Line identifying the Equator
+        const equatorGeo = new THREE.TorusGeometry(globeRadius, 0.15, 4, 64);
+        const equatorMat = new THREE.MeshBasicMaterial({ color: 0x475569, transparent: true, opacity: 0.8 });
         const equator = new THREE.Mesh(equatorGeo, equatorMat);
         equator.rotation.x = Math.PI / 2;
         scene.add(equator);
@@ -99,7 +112,7 @@
         // --- 3. DATA AND ENGINE RUNTIME FIELDS ---
         let weatherData = null; 
         let particleSystem = null;
-        let particleCount = 25000; // High particle pool density ensures filled tracks across the face
+        let particleCount = 25000; 
         let particleData = [];
         let positionsArray, colorsArray, ageArray;
 
@@ -147,25 +160,23 @@
             return weatherData.vorticity_data[levelIdx][latIdx][lonIdx];
         }
 
-        // --- 6. SHADER ENGINE WITH NATIVE ALPHA-DECAY FOR SMOOTH MOTION PATHS ---
+        // --- 6. SHADER ENGINE WITH TAIL ANIMATIONS ---
         function initParticleEngine() {
             document.getElementById('particle-count').innerText = particleCount.toLocaleString();
 
             const geometry = new THREE.BufferGeometry();
             positionsArray = new Float32Array(particleCount * 3);
             colorsArray = new Float32Array(particleCount * 3);
-            ageArray = new Float32Array(particleCount); // Sends individual trail lifetimes directly to GPU
+            ageArray = new Float32Array(particleCount); 
 
             for (let i = 0; i < particleCount; i++) {
-                resetParticleState(i, true); // Distribute uniformly across the face
+                resetParticleState(i, true); 
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positionsArray, 3));
             geometry.setAttribute('color', new THREE.BufferAttribute(colorsArray, 3));
             geometry.setAttribute('pAge', new THREE.BufferAttribute(ageArray, 1));
 
-            // CUSTOM WEBGL MOTION SHADER
-            // This forces particles to fade out gradually along their path, drawing trails across the globe face
             const material = new THREE.ShaderMaterial({
                 vertexShader: `
                     attribute vec3 color;
@@ -174,10 +185,9 @@
                     varying float vAlpha;
                     void main() {
                         vColor = color;
-                        // Fade particles linearly as they approach maximum lifecycle age
                         vAlpha = 1.0 - pAge; 
                         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                        gl_PointSize = 2.0 * (130.0 / -mvPosition.z);
+                        gl_PointSize = 2.2 * (130.0 / -mvPosition.z);
                         gl_Position = projectionMatrix * mvPosition;
                     }
                 `,
@@ -186,7 +196,7 @@
                     varying float vAlpha;
                     void main() {
                         if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
-                        gl_FragColor = vec4(vColor, vAlpha * 0.8);
+                        gl_FragColor = vec4(vColor, vAlpha * 0.85);
                     }
                 `,
                 transparent: true,
@@ -204,7 +214,7 @@
             const phi = Math.acos(Math.random() * 2 - 1);
             const theta = Math.random() * Math.PI * 2;
 
-            const maxLife = 30 + Math.floor(Math.random() * 40);
+            const maxLife = 25 + Math.floor(Math.random() * 35);
             particleData[i] = {
                 phi: phi,
                 theta: theta,
@@ -217,7 +227,7 @@
 
         function updateGeometryBuffers(i, phi, theta) {
             const idx = i * 3;
-            const dynamicRadius = globeRadius + 0.5 + (currentLevelIndex * 0.3);
+            const dynamicRadius = globeRadius + 0.5 + (currentLevelIndex * 0.4);
 
             positionsArray[idx]     = dynamicRadius * Math.sin(phi) * Math.cos(theta);
             positionsArray[idx + 1] = dynamicRadius * Math.cos(phi);
@@ -232,6 +242,12 @@
             const colAttr = particleSystem.geometry.attributes.color;
             const ageAttr = particleSystem.geometry.attributes.pAge;
 
+            // Slowly spin our map geometries in unison
+            landGlobe.rotation.y += 0.0003;
+            solidGlobe.rotation.y += 0.0003;
+            gridGlobe.rotation.y += 0.0003;
+            particleSystem.rotation.y += 0.0003;
+
             for (let i = 0; i < particleCount; i++) {
                 let p = particleData[i];
                 p.age += 1;
@@ -241,17 +257,15 @@
                     continue;
                 }
 
-                // Update GPU data arrays
                 ageArray[i] = p.age / p.maxAge;
 
                 const latRad = Math.PI / 2 - p.phi;
                 const lonRad = p.theta;
 
                 const voVal = getRealVorticity(latRad, lonRad, currentLevelIndex);
-                const speedScale = voVal * 4000;
+                const speedScale = voVal * 4200;
                 const baseZonalFlow = 0.4; 
 
-                // Advection steps mapping continuous movement
                 p.phi   -= (Math.sin(lonRad * 3) * speedScale) * 0.002;
                 p.theta += (baseZonalFlow + Math.cos(latRad * 2) * speedScale) * 0.002;
 
@@ -260,13 +274,12 @@
                 const colorIdx = i * 3;
                 const normalizedIntensity = Math.min(Math.abs(voVal) * 25000, 1.0);
 
-                // Intense neon data color routing
                 if (voVal >= 0) {
                     colorsArray[colorIdx]     = 0.0;
-                    colorsArray[colorIdx + 1] = 0.4 + (normalizedIntensity * 0.6); // Cyan-Green Cyclonic Streams
+                    colorsArray[colorIdx + 1] = 0.4 + (normalizedIntensity * 0.6); // Cyan-Green Systems
                     colorsArray[colorIdx + 2] = 0.9;
                 } else {
-                    colorsArray[colorIdx]     = 1.0;                               // Orange-Crimson Anticyclones
+                    colorsArray[colorIdx]     = 1.0;                               // Orange-Crimson Fields
                     colorsArray[colorIdx + 1] = 0.2 + (normalizedIntensity * 0.4);
                     colorsArray[colorIdx + 2] = 0.3;
                 }
