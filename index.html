@@ -6,7 +6,7 @@
     <title>3D Global Vorticity Map & Motion Trails</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></style>
     <style>
         body { margin: 0; overflow: hidden; background-color: #03050a; }
         canvas { display: block; }
@@ -70,41 +70,63 @@
 
         const globeRadius = 60;
 
-        // --- 2. HIGH-VISIBILITY MAP LAYOUTS ---
-        // Solid Earth base sphere (Oceans)
-        const solidGlobeGeo = new THREE.SphereGeometry(globeRadius - 0.6, 40, 40);
-        const solidGlobeMat = new THREE.MeshBasicMaterial({ color: 0x090f1d });
-        const solidGlobe = new THREE.Mesh(solidGlobeGeo, solidGlobeMat);
-        scene.add(solidGlobe);
+        // --- 2. FOOLPROOF MAP SYSTEM (GENERATES MAP INTERNALLY VIA CANVAS) ---
+        // Generates a backup earth texture grid directly inside the browser's RAM memory
+        const mapCanvas = document.createElement('canvas');
+        mapCanvas.width = 2048;
+        mapCanvas.height = 1024;
+        const ctx = mapCanvas.getContext('2d');
+        
+        // Ocean base tint fill
+        ctx.fillStyle = '#090f1d';
+        ctx.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
+        
+        // Render stylized geometric grids representing solid continental spaces
+        ctx.fillStyle = '#1e293b';
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 2;
+        
+        // Let's sketch a simplified wireframe map vector layout into the canvas matrix
+        // [Longitude / Latitude mapping boxes to roughly segment continents visually]
+        const landBoxes = [
+            {x: 200, y: 150, w: 400, h: 350}, // North America
+            {x: 350, y: 500, w: 250, h: 400}, // South America
+            {x: 900, y: 100, w: 700, h: 400}, // Eurasia
+            {x: 950, y: 450, w: 300, h: 400}, // Africa
+            {x: 1500, y: 600, w: 300, h: 250}, // Australia
+            {x: 0, y: 900, w: 2048, h: 124}   // Antarctica
+        ];
+        landBoxes.forEach(b => {
+            ctx.fillRect(b.x, b.y, b.w, b.h);
+            ctx.strokeRect(b.x, b.y, b.w, b.h);
+        });
 
-        // Map Texture: Deep contrasted continent outlines without messy cloud layers
-        const textureLoader = new THREE.TextureLoader();
-        const landMapTexture = textureLoader.load('https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73909/world.topo.bathy.200412.3x5400x2700.jpg');
+        // Convert the structural drawing canvas into a native WebGL texture map
+        const landMapTexture = new THREE.CanvasTexture(mapCanvas);
         
         const landGlobeGeo = new THREE.SphereGeometry(globeRadius - 0.3, 45, 45);
         const landGlobeMat = new THREE.MeshBasicMaterial({
             map: landMapTexture,
-            color: 0x1e293b, // Tint the map into a dark cyber blueprint theme
             transparent: true,
-            opacity: 0.65    // Keeps land visible without drowning out neon particle streams
+            opacity: 0.95
         });
         const landGlobe = new THREE.Mesh(landGlobeGeo, landGlobeMat);
         scene.add(landGlobe);
 
-        // Highly visible tracking grid wireframe overlay
+        // Highly visible tracking grid wireframe overlay lines
         const gridGeo = new THREE.SphereGeometry(globeRadius - 0.1, 24, 12);
         const gridMat = new THREE.MeshBasicMaterial({
-            color: 0x334155,
+            color: 0x475569,
             wireframe: true,
             transparent: true,
-            opacity: 0.3
+            opacity: 0.4
         });
         const gridGlobe = new THREE.Mesh(gridGeo, gridMat);
         scene.add(gridGlobe);
 
-        // Line identifying the Equator
+        // Bold line identifying the Equator
         const equatorGeo = new THREE.TorusGeometry(globeRadius, 0.15, 4, 64);
-        const equatorMat = new THREE.MeshBasicMaterial({ color: 0x475569, transparent: true, opacity: 0.8 });
+        const equatorMat = new THREE.MeshBasicMaterial({ color: 0x64748b });
         const equator = new THREE.Mesh(equatorGeo, equatorMat);
         equator.rotation.x = Math.PI / 2;
         scene.add(equator);
@@ -187,7 +209,7 @@
                         vColor = color;
                         vAlpha = 1.0 - pAge; 
                         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                        gl_PointSize = 2.2 * (130.0 / -mvPosition.z);
+                        gl_PointSize = 2.4 * (130.0 / -mvPosition.z);
                         gl_Position = projectionMatrix * mvPosition;
                     }
                 `,
@@ -196,7 +218,7 @@
                     varying float vAlpha;
                     void main() {
                         if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
-                        gl_FragColor = vec4(vColor, vAlpha * 0.85);
+                        gl_FragColor = vec4(vColor, vAlpha * 0.9);
                     }
                 `,
                 transparent: true,
@@ -242,9 +264,7 @@
             const colAttr = particleSystem.geometry.attributes.color;
             const ageAttr = particleSystem.geometry.attributes.pAge;
 
-            // Slowly spin our map geometries in unison
             landGlobe.rotation.y += 0.0003;
-            solidGlobe.rotation.y += 0.0003;
             gridGlobe.rotation.y += 0.0003;
             particleSystem.rotation.y += 0.0003;
 
@@ -276,10 +296,10 @@
 
                 if (voVal >= 0) {
                     colorsArray[colorIdx]     = 0.0;
-                    colorsArray[colorIdx + 1] = 0.4 + (normalizedIntensity * 0.6); // Cyan-Green Systems
+                    colorsArray[colorIdx + 1] = 0.4 + (normalizedIntensity * 0.6); 
                     colorsArray[colorIdx + 2] = 0.9;
                 } else {
-                    colorsArray[colorIdx]     = 1.0;                               // Orange-Crimson Fields
+                    colorsArray[colorIdx]     = 1.0;                               
                     colorsArray[colorIdx + 1] = 0.2 + (normalizedIntensity * 0.4);
                     colorsArray[colorIdx + 2] = 0.3;
                 }
