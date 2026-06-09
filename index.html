@@ -32,7 +32,7 @@
 
         <div class="space-y-2 border-t border-slate-900 pt-3 text-xs text-slate-400">
             <div class="flex justify-between"><span>Active Stream Ribbons:</span><span class="font-mono text-slate-200" id="particle-count">0</span></div>
-            <div class="flex justify-between"><span>Visual Mode:</span><span class="font-mono text-cyan-500">24h Continuous Flow</span></div>
+            <div class="flex justify-between"><span>Visual Mode:</span><span class="font-mono text-cyan-500">Level-Isolated Vectors</span></div>
             <div class="flex justify-between"><span>Status:</span><span class="font-mono text-emerald-400 font-bold" id="status-text">Loading Data...</span></div>
         </div>
     </div>
@@ -96,13 +96,12 @@
         const landGlobe = new THREE.Mesh(landGlobeGeo, landGlobeMat);
         scene.add(landGlobe);
 
-        // --- 4. 24-HOUR FLOW RUNTIME SETTINGS ---
+        // --- 4. FLOW RUNTIME SETTINGS ---
         let weatherData = null; 
         let ribbonLineSystem = null;
         
-        // Formats 1,500 clean, bold flow paths spanning 24 historical points each
         const totalStreams = 15000; 
-        const segmentsPerStream = 24; // Expanded to render a full 24-step trajectory trail
+        const segmentsPerStream = 24; 
         const totalPointsCount = totalStreams * segmentsPerStream;
 
         let streamHistoryData = [];
@@ -160,23 +159,19 @@
             linePositions = new Float32Array(totalPointsCount * 3);
             lineColors = new Float32Array(totalPointsCount * 3);
 
+            // Populate the primary streams array
             for (let s = 0; s < totalStreams; s++) {
-                const phi = Math.acos(Math.random() * 2 - 1);
-                const theta = Math.random() * Math.PI * 2;
-                
                 streamHistoryData[s] = {
-                    phi: phi,
-                    theta: theta,
-                    age: Math.floor(Math.random() * 60),
-                    maxAge: 70 + Math.floor(Math.random() * 50),
+                    phi: 0,
+                    theta: 0,
+                    age: 0,
+                    maxAge: 1,
                     history: []
                 };
-
-                const initialPos = calculateCartesianCoordinates(phi, theta);
-                for (let h = 0; h < segmentsPerStream; h++) {
-                    streamHistoryData[s].history.push({ x: initialPos.x, y: initialPos.y, z: initialPos.z, vo: 0 });
-                }
             }
+
+            // Perform the baseline vector distribution
+            resetParticlesForActiveLevel();
 
             geometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
             geometry.setAttribute('color', new THREE.BufferAttribute(lineColors, 3));
@@ -193,7 +188,6 @@
                 fragmentShader: `
                     varying vec3 vColor;
                     void main() {
-                        // High basic opacity to ensure excellent visual pop over geography landscapes
                         gl_FragColor = vec4(vColor, 0.95);
                     }
                 `,
@@ -208,8 +202,26 @@
             animateLoop();
         }
 
+        // Force-resets particle distribution specifically configured for the modified pressure layer
+        function resetParticlesForActiveLevel() {
+            for (let s = 0; s < totalStreams; s++) {
+                const phi = Math.acos(Math.random() * 2 - 1);
+                const theta = Math.random() * Math.PI * 2;
+                
+                streamHistoryData[s].phi = phi;
+                streamHistoryData[s].theta = theta;
+                streamHistoryData[s].age = Math.floor(Math.random() * 60);
+                streamHistoryData[s].maxAge = 70 + Math.floor(Math.random() * 50);
+                streamHistoryData[s].history = [];
+
+                const initialPos = calculateCartesianCoordinates(phi, theta);
+                for (let h = 0; h < segmentsPerStream; h++) {
+                    streamHistoryData[s].history.push({ x: initialPos.x, y: initialPos.y, z: initialPos.z, vo: 0 });
+                }
+            }
+        }
+
         function calculateCartesianCoordinates(phi, theta) {
-            // Elevated altitude tracking to float trails elegantly above terrain maps
             const currentAltRadius = globeRadius + 0.9 + (currentLevelIndex * 0.25);
             return {
                 x: currentAltRadius * Math.sin(phi) * Math.cos(theta),
@@ -222,7 +234,6 @@
         function animateLoop() {
             requestAnimationFrame(animateLoop);
 
-            // Maintain uniform global earth rotation alignment
             landGlobe.rotation.y += 0.0002;
             ribbonLineSystem.rotation.y += 0.0002;
 
@@ -239,11 +250,9 @@
                 const speedScale = voVal * 4200;
                 const baseZonalFlow = 0.45; 
 
-                // Process continuous physics steps
                 stream.phi   -= (Math.sin(lonRad * 3) * speedScale) * 0.0016;
                 stream.theta += (baseZonalFlow + Math.cos(latRad * 2) * speedScale) * 0.0016;
 
-                // Border bounds recycling trigger
                 if (stream.age >= stream.maxAge || stream.phi <= 0.05 || stream.phi >= Math.PI - 0.05) {
                     stream.phi = Math.acos(Math.random() * 2 - 1);
                     stream.theta = Math.random() * Math.PI * 2;
@@ -263,7 +272,6 @@
                     }
                 }
 
-                // Map updated coordinates into lines buffer array sequential pairs
                 for (let h = 0; h < segmentsPerStream - 1; h++) {
                     const pStart = stream.history[h];
                     const pEnd = stream.history[h + 1];
@@ -276,12 +284,10 @@
                     linePositions[bufferIdx + 4] = pEnd.y;
                     linePositions[bufferIdx + 5] = pEnd.z;
 
-                    // Smooth alpha drop over the length of the 24-step history tail
                     const trailFadeRatio = h / (segmentsPerStream - 1); 
                     const normalizedIntensity = Math.min(Math.abs(pStart.vo) * 24000, 1.0);
 
                     if (pStart.vo >= 0) {
-                        // Cyan Cyclonic Flows
                         lineColors[bufferIdx]     = 0.0;
                         lineColors[bufferIdx + 1] = (0.4 + (normalizedIntensity * 0.6)) * trailFadeRatio;
                         lineColors[bufferIdx + 2] = 1.0 * trailFadeRatio;
@@ -290,7 +296,6 @@
                         lineColors[bufferIdx + 4] = (0.4 + (normalizedIntensity * 0.6)) * trailFadeRatio;
                         lineColors[bufferIdx + 5] = 1.0 * trailFadeRatio;
                     } else {
-                        // High-Contrast Fiery Orange Anticyclonic Flows
                         lineColors[bufferIdx]     = 1.0 * trailFadeRatio;
                         lineColors[bufferIdx + 1] = (0.3 + (normalizedIntensity * 0.5)) * trailFadeRatio;
                         lineColors[bufferIdx + 2] = 0.1 * trailFadeRatio;
@@ -318,6 +323,11 @@
         slider.addEventListener('input', (e) => {
             currentLevelIndex = parseInt(e.target.value);
             display.innerText = pressureLevelsText[currentLevelIndex];
+            
+            // Instantly clear out old tracks and create distinct layer vectors upon slider modifications
+            if(weatherData) {
+                resetParticlesForActiveLevel();
+            }
         });
 
         window.addEventListener('resize', () => {
